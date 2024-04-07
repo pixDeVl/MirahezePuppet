@@ -50,6 +50,10 @@ define mediawiki::extensionsetup (
                 },
                 default    => $params['branch'],
             },
+            revision           => $params['commit'] ? {
+                undef   => '',
+                default => $params['commit'],
+            },
             owner              => 'www-data',
             group              => 'www-data',
             mode               => '0755',
@@ -72,7 +76,7 @@ define mediawiki::extensionsetup (
                     path        => '/usr/bin',
                     environment => [
                         "HOME=${mwpath}/${params['path']}",
-                        'HTTP_PROXY=http://bast.miraheze.org:8080'
+                        'HTTP_PROXY=http://bastion.wikitide.net:8080'
                     ],
                     user        => 'www-data',
                     require     => Git::Clone["MediaWiki-${branch} ${name}"],

@@ -8,7 +8,7 @@
 #
 # [*puppet_major_version*] Specify the puppetserver version you want to support / install.
 #
-# [*puppetserver_hostname*] Hostname of the puppetserver, eg puppet1.miraheze.org.
+# [*puppetserver_hostname*] Hostname of the puppetserver.
 #
 # [*puppetserver_java_opts*] Options to pass to the puppetserver, eg configuring the heap.
 #
@@ -66,16 +66,16 @@ class puppetserver(
     }
 
     git::clone { 'puppet':
-        ensure    => present,
+        ensure    => latest,
         directory => '/etc/puppetlabs/puppet/git',
-        origin    => 'https://github.com/miraheze/puppet.git',
+        origin    => 'https://github.com/miraheze/puppet',
         require   => Package['puppet-agent'],
     }
 
     git::clone { 'ssl':
-        ensure    => present,
+        ensure    => latest,
         directory => '/etc/puppetlabs/puppet/ssl-cert',
-        origin    => 'https://github.com/miraheze/ssl.git',
+        origin    => 'https://github.com/miraheze/ssl',
         require   => Package['puppet-agent'],
     }
 
@@ -258,7 +258,7 @@ class puppetserver(
     # Backups
     cron { 'backups-sslkeys':
         ensure  => present,
-        command => '/usr/local/bin/miraheze-backup backup sslkeys > /var/log/sslkeys-backup.log 2>&1',
+        command => '/usr/local/bin/wikitide-backup backup sslkeys > /var/log/sslkeys-backup.log 2>&1',
         user    => 'root',
         minute  => '0',
         hour    => '6',
@@ -273,7 +273,7 @@ class puppetserver(
 
     cron { 'backups-private':
         ensure  => present,
-        command => '/usr/local/bin/miraheze-backup backup private > /var/log/private-backup.log 2>&1',
+        command => '/usr/local/bin/wikitide-backup backup private > /var/log/private-backup.log 2>&1',
         user    => 'root',
         minute  => '0',
         hour    => '3',

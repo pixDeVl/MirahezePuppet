@@ -2,11 +2,11 @@
 class mediawiki {
     include mediawiki::cgroup
     include mediawiki::favicons
+    include mediawiki::logging
+    include mediawiki::monitoring
     include mediawiki::nginx
     include mediawiki::packages
-    include mediawiki::logging
     include mediawiki::php
-    include mediawiki::monitoring
 
     if lookup(mediawiki::use_staging) {
         include mediawiki::deploy
@@ -18,6 +18,12 @@ class mediawiki {
 
     if lookup(mediawiki::use_shellbox) {
         include mediawiki::shellbox
+    }
+
+    class { 'role::prometheus::statsd_exporter':
+        relay_address     => '',
+        timer_type        => 'histogram',
+        histogram_buckets => lookup('role::prometheus::statsd_exporter::histogram_buckets', { 'default_value' => [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60] }),
     }
 
     if !lookup('jobrunner::intensive', {'default_value' => false}) {
@@ -54,7 +60,7 @@ class mediawiki {
     git::clone { '3d2png':
         ensure             => 'latest',
         directory          => '/srv/3d2png',
-        origin             => 'https://github.com/miraheze/3d2png-deploy.git',
+        origin             => 'https://github.com/miraheze/3d2png-deploy',
         branch             => 'master',
         owner              => 'www-data',
         group              => 'www-data',
@@ -108,7 +114,6 @@ class mediawiki {
     $wikiadmin_password         = lookup('passwords::db::wikiadmin')
     $mediawiki_password         = lookup('passwords::db::mediawiki')
     $redis_password             = lookup('passwords::redis::master')
-    $noreply_password           = lookup('passwords::mail::noreply')
     $mediawiki_upgradekey       = lookup('passwords::mediawiki::upgradekey')
     $mediawiki_secretkey        = lookup('passwords::mediawiki::secretkey')
     $hcaptcha_secretkey         = lookup('passwords::hcaptcha::secretkey')

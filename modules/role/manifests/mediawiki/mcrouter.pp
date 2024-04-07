@@ -16,19 +16,19 @@ class role::mediawiki::mcrouter(
     $routes = $servers_by_dc.map |$dc, $_| {
       {
         'aliases' => [ "/${dc}/mw/" ],
-        'route' => 'PoolRoute|miraheze'
+        'route' => 'PoolRoute|wikitide'
       }
     }
 
     class { 'mcrouter':
-      pools                  => $pools,
-      routes                 => $routes,
-      region                 => 'miraheze',
-      cluster                => 'mw',
-      num_proxies            => $num_proxies,
-      disable_tko_tracking   => true,
-      probe_delay_initial_ms => 60000,
-      port                   => 11213,
+        pools                  => $pools,
+        routes                 => $routes,
+        region                 => 'wikitide',
+        cluster                => 'mw',
+        num_proxies            => $num_proxies,
+        disable_tko_tracking   => true,
+        probe_delay_initial_ms => 60000,
+        port                   => 11213,
     }
 
     file { '/etc/systemd/system/mcrouter.service.d/cpuaccounting-override.conf':
@@ -36,7 +36,7 @@ class role::mediawiki::mcrouter(
         owner   => 'root',
         group   => 'root',
         mode    => '0444',
-        notify  => Exec['systemd daemon-reload for mcrouter.service']
+        notify  => Exec['systemd daemon-reload for mcrouter.service (mcrouter)']
     }
 
     ferm::rule { 'skip_mcrouter_wancache_conntrack_out':

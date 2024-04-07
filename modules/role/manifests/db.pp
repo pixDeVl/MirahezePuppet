@@ -1,21 +1,23 @@
 # class: role::db
 class role::db (
+    Optional[Array[String]] $daily_misc = lookup('role::db::daily_misc', {'default_value' => []}),
     Optional[Array[String]] $weekly_misc = lookup('role::db::weekly_misc', {'default_value' => []}),
     Optional[Array[String]] $fortnightly_misc = lookup('role::db::fornightly_misc', {'default_value' => []}),
     Optional[Array[String]] $monthly_misc = lookup('role::db::monthly_misc', {'default_value' => []}),
     Boolean $enable_bin_logs = lookup('role::db::enable_bin_logs', {'default_value' => true}),
+    Boolean $enable_slow_log = lookup('role::db::enable_slow_log', {'default_value' => false}),
     Boolean $backup_sql = lookup('role::db::backup_sql', {'default_value' => true}),
+    Boolean $enable_ssl = lookup('role::db::enable_ssl', {'default_value' => true}),
 ) {
     include mariadb::packages
     include prometheus::exporter::mariadb
 
     $mediawiki_password = lookup('passwords::db::mediawiki')
     $wikiadmin_password = lookup('passwords::db::wikiadmin')
-    $piwik_password = lookup('passwords::db::piwik')
-    $phabricator_password = lookup('passwords::db::phabricator')
+    $matomo_password = lookup('passwords::db::matomo')
+    $phorge_password = lookup('passwords::db::phorge')
     $exporter_password = lookup('passwords::db::exporter')
     $icinga_password = lookup('passwords::db::icinga')
-    $roundcubemail_password = lookup('passwords::roundcubemail')
     $icingaweb2_db_user_password = lookup('passwords::icingaweb2')
     $ido_db_user_password = lookup('passwords::icinga_ido')
     $reports_password = lookup('passwords::db::reports')
@@ -34,42 +36,45 @@ class role::db (
         password        => lookup('passwords::db::root'),
         icinga_password => $icinga_password,
         enable_bin_logs => $enable_bin_logs,
+        enable_ssl      => $enable_ssl,
+        enable_slow_log => $enable_slow_log,
     }
 
-    file { '/etc/mysql/miraheze/mediawiki-grants.sql':
+    file { '/etc/mysql/wikitide/mediawiki-grants.sql':
         ensure  => present,
         content => template('mariadb/grants/mediawiki-grants.sql.erb'),
     }
 
-    file { '/etc/mysql/miraheze/piwik-grants.sql':
+    file { '/etc/mysql/wikitide/matomo-grants.sql':
         ensure  => present,
-        content => template('mariadb/grants/piwik-grants.sql.erb'),
+        content => template('mariadb/grants/matomo-grants.sql.erb'),
     }
 
-    file { '/etc/mysql/miraheze/phabricator-grants.sql':
+    file { '/etc/mysql/wikitide/phorge-grants.sql':
         ensure  => present,
-        content => template('mariadb/grants/phabricator-grants.sql.erb'),
+        content => template('mariadb/grants/phorge-grants.sql.erb'),
     }
 
-    file { '/etc/mysql/miraheze/roundcubemail-grants.sql':
-        ensure  => present,
-        content => template('mariadb/grants/roundcubemail-grants.sql.erb'),
-    }
-
-    file { '/etc/mysql/miraheze/icinga2-grants.sql':
+    file { '/etc/mysql/wikitide/icinga2-grants.sql':
         ensure  => present,
         content => template('mariadb/grants/icinga2-grants.sql.erb'),
     }
 
-    file { '/etc/mysql/miraheze/reports-grants.sql':
+    file { '/etc/mysql/wikitide/reports-grants.sql':
         ensure  => present,
         content => template('mariadb/grants/reports-grants.sql.erb'),
     }
 
     $firewall_rules_str = join(
-        query_facts("networking.domain='${facts['networking']['domain']}' and Class[Role::Db] or Class[Role::Mediawiki] or Class[Role::Icinga2] or Class[Role::Roundcubemail] or Class[Role::Phabricator] or Class[Role::Matomo] or Class[Role::Reports]", ['networking'])
+        query_facts('Class[Role::Db] or Class[Role::Mediawiki] or Class[Role::Icinga2] or Class[Role::Phorge] or Class[Role::Matomo] or Class[Role::Reports]', ['networking'])
         .map |$key, $value| {
-            "${value['networking']['ip']} ${value['networking']['ip6']}"
+            if ( $value['networking']['interfaces']['ens19'] and $value['networking']['interfaces']['ens18'] ) {
+                "${value['networking']['interfaces']['ens19']['ip']} ${value['networking']['interfaces']['ens18']['ip']} ${value['networking']['interfaces']['ens18']['ip6']}"
+            } elsif ( $value['networking']['interfaces']['ens18'] ) {
+                "${value['networking']['interfaces']['ens18']['ip']} ${value['networking']['interfaces']['ens18']['ip6']}"
+            } else {
+                "${value['networking']['ip']} ${value['networking']['ip6']}"
+            }
         }
         .flatten()
         .unique()
@@ -97,14 +102,14 @@ class role::db (
         ensure => directory,
     }
 
-    motd::role { 'role::db':
-        description => 'general database server',
+    system::role { 'db':
+        description => 'MySQL database server',
     }
 
     if $backup_sql {
         cron { 'backups-sql':
             ensure   => present,
-            command  => '/usr/local/bin/miraheze-backup backup sql > /var/log/sql-backup.log 2>&1',
+            command  => '/usr/local/bin/wikitide-backup backup sql > /var/log/sql-backup.log 2>&1',
             user     => 'root',
             minute   => '0',
             hour     => '3',
@@ -118,10 +123,25 @@ class role::db (
         }
     }
 
+    $daily_misc.each |String $db| {
+        cron { "backups-${db}":
+            ensure  => present,
+            command => "/usr/local/bin/wikitide-backup backup sql --database=${db} > /var/log/sql-${db}-backup-daily.log 2>&1",
+            user    => 'root',
+            special => 'daily',
+        }
+
+        monitoring::nrpe { "Backups SQL ${db}":
+            command  => "/usr/lib/nagios/plugins/check_file_age -w 129600 -c 172800 -f /var/log/sql-${db}-backup-daily.log",
+            docs     => 'https://meta.miraheze.org/wiki/Backups#General_backup_Schedules',
+            critical => true
+        }
+    }
+
     $weekly_misc.each |String $db| {
         cron { "backups-${db}":
             ensure  => present,
-            command => "/usr/local/bin/miraheze-backup backup sql --database=${db} > /var/log/sql-${db}-backup-weekly.log 2>&1",
+            command => "/usr/local/bin/wikitide-backup backup sql --database=${db} > /var/log/sql-${db}-backup-weekly.log 2>&1",
             user    => 'root',
             minute  => '0',
             hour    => '5',
@@ -138,7 +158,7 @@ class role::db (
     $fortnightly_misc.each |String $db| {
         cron { "backups-${db}":
             ensure   => present,
-            command  => "/usr/local/bin/miraheze-backup backup sql --database=${db} > /var/log/sql-${db}-backup-fortnightly.log 2>&1",
+            command  => "/usr/local/bin/wikitide-backup backup sql --database=${db} > /var/log/sql-${db}-backup-fortnightly.log 2>&1",
             user     => 'root',
             minute   => '0',
             hour     => '5',
@@ -155,7 +175,7 @@ class role::db (
     $monthly_misc.each |String $db| {
         cron { "backups-${db}":
             ensure   => present,
-            command  => "/usr/local/bin/miraheze-backup backup sql --database=${db} > /var/log/sql-${db}-backup-monthly.log 2>&1",
+            command  => "/usr/local/bin/wikitide-backup backup sql --database=${db} > /var/log/sql-${db}-backup-monthly.log 2>&1",
             user     => 'root',
             minute   => '0',
             hour     => '5',

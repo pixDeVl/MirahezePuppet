@@ -153,11 +153,11 @@ def test_check_up_no_debug_host() -> None:
 
 def test_check_up_debug() -> None:
     if os.getenv('DEBUG_ACCESS_KEY'):
-        assert mwdeploy.check_up(nolog=True, Debug='mwtask141')
+        assert mwdeploy.check_up(nolog=True, Debug='mwtask181')
 
 
 def test_check_up_debug_fail() -> None:
-    assert not mwdeploy.check_up(nolog=True, Debug='mwtask141', domain='httpstat.us/500', force=True)
+    assert not mwdeploy.check_up(nolog=True, Debug='mwtask181', domain='httpstat.us/500', force=True)
 
 
 def test_get_staging_path() -> None:
@@ -217,11 +217,11 @@ def test_construct_rsync_local_file_update() -> None:
 
 
 def test_construct_rsync_remote_dir_update() -> None:
-    assert mwdeploy._construct_rsync_command(time=False, dest='/srv/mediawiki/version/', local=False, server='meta') == 'sudo -u www-data rsync --update -r --delete -e "ssh -i /srv/mediawiki-staging/deploykey" /srv/mediawiki/version/ www-data@meta.miraheze.org:/srv/mediawiki/version/'
+    assert mwdeploy._construct_rsync_command(time=False, dest='/srv/mediawiki/version/', local=False, server='meta') == 'sudo -u www-data rsync --update -r --delete -e "ssh -i /srv/mediawiki-staging/deploykey" /srv/mediawiki/version/ www-data@meta.wikitide.net:/srv/mediawiki/version/'
 
 
 def test_construct_rsync_remote_file_update() -> None:
-    assert mwdeploy._construct_rsync_command(time=False, dest='/srv/mediawiki/version/test.txt', recursive=False, local=False, server='meta') == 'sudo -u www-data rsync --update -e "ssh -i /srv/mediawiki-staging/deploykey" /srv/mediawiki/version/test.txt www-data@meta.miraheze.org:/srv/mediawiki/version/test.txt'
+    assert mwdeploy._construct_rsync_command(time=False, dest='/srv/mediawiki/version/test.txt', recursive=False, local=False, server='meta') == 'sudo -u www-data rsync --update -e "ssh -i /srv/mediawiki-staging/deploykey" /srv/mediawiki/version/test.txt www-data@meta.wikitide.net:/srv/mediawiki/version/test.txt'
 
 
 def test_construct_rsync_local_dir_time() -> None:
@@ -233,11 +233,11 @@ def test_construct_rsync_local_file_time() -> None:
 
 
 def test_construct_rsync_remote_dir_time() -> None:
-    assert mwdeploy._construct_rsync_command(time=True, dest='/srv/mediawiki/version/', local=False, server='meta') == 'sudo -u www-data rsync --inplace -r --delete -e "ssh -i /srv/mediawiki-staging/deploykey" /srv/mediawiki/version/ www-data@meta.miraheze.org:/srv/mediawiki/version/'
+    assert mwdeploy._construct_rsync_command(time=True, dest='/srv/mediawiki/version/', local=False, server='meta') == 'sudo -u www-data rsync --inplace -r --delete -e "ssh -i /srv/mediawiki-staging/deploykey" /srv/mediawiki/version/ www-data@meta.wikitide.net:/srv/mediawiki/version/'
 
 
 def test_construct_rsync_remote_file_time() -> None:
-    assert mwdeploy._construct_rsync_command(time=True, dest='/srv/mediawiki/version/test.txt', recursive=False, local=False, server='meta') == 'sudo -u www-data rsync --inplace -e "ssh -i /srv/mediawiki-staging/deploykey" /srv/mediawiki/version/test.txt www-data@meta.miraheze.org:/srv/mediawiki/version/test.txt'
+    assert mwdeploy._construct_rsync_command(time=True, dest='/srv/mediawiki/version/test.txt', recursive=False, local=False, server='meta') == 'sudo -u www-data rsync --inplace -e "ssh -i /srv/mediawiki-staging/deploykey" /srv/mediawiki/version/test.txt www-data@meta.wikitide.net:/srv/mediawiki/version/test.txt'
 
 
 def test_construct_git_pull() -> None:
@@ -294,8 +294,8 @@ def test_UpgradePackAction():
     parser.add_argument('--upgrade-skins', action='store_const', const=True, default=False)
     parser.add_argument('--versions', action='store', default=None)
     parser.add_argument('--upgrade-pack', action=UpgradePackAction)
-    namespace = parser.parse_args(['--upgrade-pack', 'miraheze'])
-    assert namespace.upgrade_extensions == ['CreateWiki', 'DataDump', 'GlobalNewFiles', 'ImportDump', 'IncidentReporting', 'ManageWiki', 'MatomoAnalytics', 'MirahezeMagic', 'PDFEmbed', 'RemovePII', 'RottenLinks', 'SpriteSheet', 'WikiDiscover', 'YouTube']
+    namespace = parser.parse_args(['--upgrade-pack', 'wikitide'])
+    assert namespace.upgrade_extensions == ['CreateWiki', 'DataDump', 'GlobalNewFiles', 'ImportDump', 'IncidentReporting', 'ManageWiki', 'MatomoAnalytics', 'MirahezeMagic', 'PDFEmbed', 'RemovePII', 'RequestSSL', 'RottenLinks', 'SpriteSheet', 'WikiDiscover', 'YouTube']
 
 
 def test_LangAction():
@@ -335,5 +335,5 @@ def test_ServersAction():
     parser.add_argument('--servers', action=ServersAction)
     with pytest.raises(SystemExit):
         parser.parse_args(['--servers', 'invalid_server'])
-    namespace = parser.parse_args(['--servers', 'mw131,mw132'])
-    assert namespace.servers == ['mw131', 'mw132']
+    namespace = parser.parse_args(['--servers', 'mw151,mw152'])
+    assert namespace.servers == ['mw151', 'mw152']

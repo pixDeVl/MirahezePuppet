@@ -1,6 +1,10 @@
 class prometheus::exporter::statsd_exporter (
-    Array[Hash] $mappings      = lookup('prometheus::exporter::statsd_exporter::mappings'),
-    String $listen_address     = ':9112',
+    Enum['summary', 'histogram'] $timer_type,
+    Array[Variant[Integer, Float]] $histogram_buckets,
+    Array[Hash] $mappings = [],
+    String $relay_address = '',
+    String $listen_address = ':9112',
+    String $arguments = '',
 ) {
 
     file { '/opt/prometheus-statsd-exporter_0.9.0+ds1-1_amd64.deb':
@@ -17,29 +21,38 @@ class prometheus::exporter::statsd_exporter (
 
     $basedir = '/etc/prometheus'
     $config = "${basedir}/statsd_exporter.conf"
-    $defaults = {
-      'timer_type' => 'summary',
-      'quantiles'  => [
-        { 'quantile' => 0.99,
-          'error'    => 0.001  },
-        { 'quantile' => 0.95,
-          'error'    => 0.001  },
-        { 'quantile' => 0.75,
-          'error'    => 0.001  },
-        { 'quantile' => 0.50,
-          'error'    => 0.005  },
-      ],
+    if lookup('prometheus::exporter::statsd_exporter::use_defaults', { 'default_value' => true }) {
+        $defaults = {
+            'timer_type' => $timer_type,
+            'buckets'    => $histogram_buckets,
+            'quantiles'  => [
+                { 'quantile' => 0.99,
+                  'error'    => 0.001  },
+                { 'quantile' => 0.95,
+                  'error'    => 0.001  },
+                { 'quantile' => 0.75,
+                  'error'    => 0.001  },
+                { 'quantile' => 0.50,
+                  'error'    => 0.005  },
+            ],
+        }
+
+        $content = stdlib::to_yaml({ 'defaults' => $defaults, 'mappings' => $mappings })
+    } else {
+        $content = stdlib::to_yaml({ 'mappings' => $mappings })
     }
 
-    file { $basedir:
-        ensure => directory,
-        mode   => '0555',
-        owner  => 'root',
-        group  => 'root',
+    if (!defined(File[$basedir])) {
+        file { $basedir:
+            ensure => directory,
+            mode   => '0555',
+            owner  => 'root',
+            group  => 'root',
+        }
     }
 
     file { $config:
-        content => stdlib::to_yaml({'defaults' => $defaults, 'mappings' => $mappings}),
+        content => $content,
         owner   => 'root',
         group   => 'root',
         mode    => '0444',
@@ -52,7 +65,9 @@ class prometheus::exporter::statsd_exporter (
         group   => 'root',
         content => inline_template(join(['ARGS="',
             '--statsd.mapping-config=<%= @config %>',
+            '<% if not @relay_address.empty? %>--statsd.relay-address=<%= @relay_address %><% end %>',
             '--web.listen-address=<%= @listen_address %>',
+            '<%= @arguments %>',
         '"'], ' ')),
         notify  => Service['prometheus-statsd-exporter'],
     }
@@ -62,9 +77,15 @@ class prometheus::exporter::statsd_exporter (
     }
 
     $firewall_rules_str = join(
-        query_facts("networking.domain='${facts['networking']['domain']}' and Class[Role::Prometheus]", ['networking'])
+        query_facts('Class[Role::Prometheus]', ['networking'])
         .map |$key, $value| {
-            "${value['networking']['ip']} ${value['networking']['ip6']}"
+            if ( $value['networking']['interfaces']['ens19'] and $value['networking']['interfaces']['ens18'] ) {
+                "${value['networking']['interfaces']['ens19']['ip']} ${value['networking']['interfaces']['ens18']['ip']} ${value['networking']['interfaces']['ens18']['ip6']}"
+            } elsif ( $value['networking']['interfaces']['ens18'] ) {
+                "${value['networking']['interfaces']['ens18']['ip']} ${value['networking']['interfaces']['ens18']['ip6']}"
+            } else {
+                "${value['networking']['ip']} ${value['networking']['ip6']}"
+            }
         }
         .flatten()
         .unique()

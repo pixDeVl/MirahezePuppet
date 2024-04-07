@@ -1,0 +1,205 @@
+# Example config file for running an eventgate instance.
+# This (optionally) uses a stream config file to restrict schemas
+# in streams.
+# Number of worker processes to spawn.
+# Set to 0 to run everything in a single process without clustering.
+# Use 'ncpu' to run as many workers as there are CPU units
+num_workers: 0
+# Log error messages and gracefully restart a worker if v8 reports that it
+# uses more heap (note: not RSS) than this many mb.
+worker_heap_limit_mb: 500
+# Logger info
+logging:
+  level: error
+  streams:
+    - type: stdout
+      named_levels: true
+
+# Statsd metrics reporter
+metrics:
+  name: eventgate
+  type: prometheus
+  port: 9102
+
+services:
+  - name: eventgate
+    # a relative path or the name of an npm package, if different from name
+    module: ./src/app.js
+    # optionally, a version constraint of the npm package
+    # version: ^0.4.0
+    # per-service config
+    conf:
+      port: 8192
+      # Events can be large; increase max body size
+      # Note that this is larger than Kafka's message.max.bytes (set below).
+      # The request body is accepted as an array of events, each of which
+      # will be an individual message in Kafka.  Each individual
+      # message must be smaller than message.max.bytes, but EventGate
+      # can accept multiple events at once in the request body.
+      max_body_size: 10mb
+
+      # Set cors to false by default.
+      cors: false
+
+      # more per-service config settings
+      user_agent: eventgate
+
+      # EventGate will be instantiated from the factory method returned by this module.
+      eventgate_factory_module: '/srv/eventgate/eventgate-custom.js'
+
+      # This field in each event will be used to extract a
+      # (possibly relative) schema uri.  The default is $schema.
+      # An array of field names will cause EventGate to search for
+      # You can alteratively use a remote HTTP base URI.
+      # fields by these names in each event, using the first match.
+      schema_uri_field: $schema
+
+      # If set, these URIs will be prepended to any relative schema URI
+      # extracted from each event's schema_field.  The resulting URLs will
+      # be searched until a schema is found.  Change this
+      # to match paths to your schema repositories.
+      schema_base_uris:
+        - 'https://schema.wikimedia.org/repositories/primary/jsonschema/'
+        - 'https://schema.wikimedia.org/repositories/secondary/jsonschema/'
+
+      # These schema URIs will be 'precached' on service startup.
+      # They should be resolveable by the URI prefixes in schema_base_uris.
+      schema_precache_uris:
+        - /error/1.0.0
+        - /test/event/1.0.0
+        - /change-prop/retry/1.0.0
+        - /change-prop/continue/1.0.0
+        - /resource_change/1.0.0
+        - /mediawiki/page/change/1.0.0
+        - /mediawiki/page/move/1.0.0
+        - /mediawiki/page/restrictions-change/1.0.0
+        - /mediawiki/page/delete/1.0.0
+        - /mediawiki/page/links-change/1.0.0
+        - /mediawiki/page/properties-change/1.0.0
+        - /mediawiki/page/undelete/1.0.0
+        - /mediawiki/recentchange/1.0.0
+        - /mediawiki/user/blocks-change/1.0.0
+        - /mediawiki/centralnotice/campaign/change/1.0.0
+        - /mediawiki/centralnotice/campaign/delete/1.0.0
+        - /mediawiki/centralnotice/campaign/create/1.0.0
+        - /mediawiki/job/1.0.0
+        - /mediawiki/revision/visibility-change/1.0.0
+        - /mediawiki/revision/score/2.0.0
+        - /mediawiki/revision/tags-change/1.0.0
+        - /mediawiki/revision/create/1.0.0
+        - /mediawiki/revision/create/1.1.0
+        - /mediawiki/revision/recommendation-create/1.0.0
+        - /mediawiki/page/image-suggestions-feedback/1.0.0
+        - /mediawiki/page/change/1.1.0
+
+      # If set, this will be appended to every extracted schema_uri if that schema_uri
+      # does not already end with a file extension.
+      #schema_file_extension: .yaml
+
+      # If this is true, then schema_uris in events will be allowed to
+      # point at any URL domain.  If false, they must only contain URI paths,
+      # which will be prefixed with one of the schema_base_uris.
+      # Setting this to false restricts schema URLs to those specified
+      # in schema_base_uris.  This defaults to false.
+      allow_absolute_schema_uris: false
+
+      # This field in each event will be used to extract a destination 'stream' name.
+      # This will equal the destination Kafka topic, unless a topic prefix
+      # is also configured.
+      stream_field: meta.stream
+      topic_prefix: 'default.'
+  
+      # This field will be used in log messages to uniquely ID each event.
+      id_field: meta.id
+
+      # This field will be used to extract and set a Kafka message timestamp.
+      dt_field: meta.dt
+
+      # A map of header names to field names.  On an incoming event, if the header
+      # name is present, and if the field name is present in that event's schema
+      # (or if the immediate parent of that field is present and has map type),
+      # that field in the event will be set to the value of the corresponding header.
+      http_request_headers_to_fields:
+        x-request-id: meta.request_id
+        user-agent: http.request_headers.user-agent
+
+      # If a validation error is encountered, a validation error event
+      # will be produced to this stream.
+      error_stream: eventgate.error.validation
+
+      # Request static stream config during startup from the EventStreamConfig extension
+      # stream_config_ttl is not set, so stream configs will be cached permanently.
+      # MW API endpoint for all streams with destination_event_service == eventgate
+      stream_config_uri: 'https://jobrunner.wikitide.net/w/api.php?format=json&action=streamconfigs&constraints=destination_event_service=eventgate'
+      stream_config_uri_options: {'headers': {'Host': 'meta.miraheze.org'}}
+      # Expect the stream -> settings map in the response at this subobject key
+      stream_config_object_path: streams
+
+      # How long in seconds stream configs live in cache before being expired.
+      # 0 means no expiration. This has no affect if stream_config_is_dynamic: false
+      #stream_config_ttl: 0
+
+      # Retry up to this many times when fetching stream config from stream_config_uri.
+      # Default: 1
+      #stream_config_retries: 1
+
+      # If test_events is set, EventGate will set up a /v1/_test/events
+      # route that will process these test_events as if they were POSTed
+      # to /v1/events.
+      # IMPORTANT:
+      # If you are using stream config, make sure this stream is configured!
+      test_events:
+      - $schema: /test/event/1.0.0
+        meta:
+          # make sure this is configured in stream config if you are using it.
+          stream: eventgate.test.event
+
+      # If this is set and an event does not have schema_uri_field, the value of
+      # event[schema_uri_field] will be set to the value of this HTTP query paramater
+      schema_uri_query_param: schema_uri
+
+      # If this is set and an event does not have stream_field, the value of
+      # event[stream_field] will be set to the value of this HTTP query paramater.
+      stream_query_param: stream
+
+      # kafka configs go here.
+      kafka:
+        conf:
+          metadata.broker.list: ['10.0.18.146:9092']
+          compression.codec: snappy
+          message.max.bytes: 4194304
+          # Silence noisy connection reaper logging
+          # https://github.com/Blizzard/node-rdkafka/issues/326
+          # https://github.com/edenhill/librdkafka/issues/768#issuecomment-246302856
+          log.connection.close: false
+          # Force rdkafka to prefer IPv4 addresses for repeatablity.
+          # broker.address.family: v4
+          # Emit rdkafka stats every 30 seconds
+          # (Prometheus will only scrape every 60 seconds).
+          statistics.interval.ms: 30000
+          ## Uncomment the below to enable rdkafka trace logging
+          # event_cb: true
+          # log_level: 7
+          # debug: broker,topic,msg
+        # kafka topic conf goes here
+        topic_conf: {}
+        # Producer type specific overrides.
+        # If you need to configure some producer specific settings,
+        # e.g. different batch settings, you can provide them here.
+        hasty:
+          conf:
+            # HastyProducer doesn't block HTTP clients, so we can
+            # afford to wait for a largish batch size.
+            queue.buffering.max.ms: 1000
+            # Custom kafka config, will call producer.setPollInterval
+            # with this value if set.
+            producer.poll.interval.ms: 100
+        guaranteed:
+          conf:
+            # GuaranteedProducer does block HTTP clients, so we attempt to send
+            # the produce request as soon as possible, rather than waiting
+            # for larger batches.
+            queue.buffering.max.ms: 10
+            # Custom kafka config, will call producer.setPollInterval
+            # with this value if set.
+            producer.poll.interval.ms: 10

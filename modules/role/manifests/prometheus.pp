@@ -3,9 +3,9 @@ class role::prometheus {
     include prometheus::exporter::blackbox
 
     $blackbox_web_urls = [
-        'https://phabricator.miraheze.org',
-        'https://matomo.miraheze.org',
-        'https://graylog.miraheze.org'
+        'https://issue-tracker.miraheze.org',
+        'https://analytics.wikitide.net',
+        'https://logging.wikitide.net'
     ]
 
     file { '/etc/prometheus/targets/blackbox_web_urls.yaml':
@@ -42,6 +42,24 @@ class role::prometheus {
             ]
         }
     ]
+
+    $pushgateway_job = [
+        {
+            'job_name'        => 'pushgateway',
+            'honor_labels'    => true,
+            'file_sd_configs' => [
+                {
+                    'files' => [ 'targets/pushgateway.yaml' ]
+                },
+            ],
+        },
+    ]
+
+    prometheus::class { 'pushgateway':
+        dest   => '/etc/prometheus/targets/pushgateway.yaml',
+        module => 'Prometheus::Pushgateway',
+        port   => 9091,
+    }
 
     $cadvisor_job = [
         {
@@ -145,6 +163,23 @@ class role::prometheus {
         port   => 9113
     }
 
+    $apache_job = [
+        {
+            'job_name' => 'apache',
+            'file_sd_configs' => [
+                {
+                    'files' => [ 'targets/apache.yaml' ]
+                }
+            ]
+        }
+    ]
+
+    prometheus::class { 'apache':
+        dest   => '/etc/prometheus/targets/apache.yaml',
+        module => 'Prometheus::Exporter::Apache',
+        port   => 9117
+    }
+
     $puppetserver_job = [
         {
             'job_name' => 'puppetserver',
@@ -155,6 +190,28 @@ class role::prometheus {
             ]
         }
     ]
+
+
+    $kafka_job = [
+        {
+            'job_name'        => 'kafka',
+            'scheme'          => 'http',
+            'scrape_timeout'  => '45s',
+            'file_sd_configs' => [
+                {
+                    'files' => [ 'targets/kafka.yaml' ]
+                }
+            ],
+        },
+    ]
+
+    # Collect all declared kafka.* jmx_exporter_instances
+    # from any uses of kafka::broker::monitoring.
+    prometheus::jmx_exporter_config { 'kafka':
+        dest              => '/etc/prometheus/targets/kafka.yaml',
+        class_name        => 'kafka::broker::monitoring',
+        instance_selector => 'kafka.*',
+    }
 
     # jmx based
     prometheus::class { 'puppetserver':
@@ -196,23 +253,6 @@ class role::prometheus {
         dest   => '/etc/prometheus/targets/memcached.yaml',
         module => 'Prometheus::Exporter::Memcached',
         port   => 9150
-    }
-
-    $postfix_job = [
-        {
-            'job_name' => 'postfix',
-            'file_sd_configs' => [
-                {
-                    'files' => [ 'targets/postfix.yaml' ]
-                }
-            ]
-        }
-    ]
-
-    prometheus::class { 'postfix':
-        dest   => '/etc/prometheus/targets/postfix.yaml',
-        module => 'Prometheus::Exporter::Postfix',
-        port   => 9154,
     }
 
     $openldap_job = [
@@ -265,22 +305,48 @@ class role::prometheus {
         port   => 9112,
     }
 
+    $eventgate_job = [
+        {
+            'job_name' => 'eventgate',
+            'file_sd_configs' => [
+                {
+                    'files' => [ 'targets/eventgate.yaml' ]
+                }
+            ]
+        }
+    ]
+
+    prometheus::class { 'eventgate':
+        dest   => '/etc/prometheus/targets/eventgate.yaml',
+        module => 'Role::Eventgate',
+        port   => 9102
+    }
+
     $global_extra = {}
 
-    class { '::prometheus':
+    class { 'prometheus':
         global_extra => $global_extra,
         scrape_extra => [
             $blackbox_jobs, $fpm_job, $redis_job, $mariadb_job, $nginx_job,
-            $puppetserver_job, $puppetdb_job, $memcached_job,
-            $postfix_job, $openldap_job, $elasticsearch_job, $statsd_exporter_job,
-            $varnish_job, $cadvisor_job
+            $apache_job, $puppetserver_job, $puppetdb_job, $memcached_job,
+            $openldap_job, $elasticsearch_job, $statsd_exporter_job,
+            $varnish_job, $cadvisor_job, $pushgateway_job, $kafka_job,
+            $eventgate_job
         ].flatten,
     }
 
     $firewall_grafana = join(
-        query_facts("networking.domain='${facts['networking']['domain']}' and Class[Role::Grafana]", ['networking'])
+        query_facts('Class[Role::Grafana]', ['networking'])
         .map |$key, $value| {
-            "${value['networking']['ip']} ${value['networking']['ip6']}"
+            if ( $value['networking']['interfaces']['he-ipv6'] ) {
+                "${value['networking']['ip']} ${value['networking']['interfaces']['he-ipv6']['ip6']}"
+            } elsif ( $value['networking']['interfaces']['ens19'] and $value['networking']['interfaces']['ens18'] ) {
+                "${value['networking']['interfaces']['ens19']['ip']} ${value['networking']['interfaces']['ens18']['ip']} ${value['networking']['interfaces']['ens18']['ip6']}"
+            } elsif ( $value['networking']['interfaces']['ens18'] ) {
+                "${value['networking']['interfaces']['ens18']['ip']} ${value['networking']['interfaces']['ens18']['ip6']}"
+            } else {
+                "${value['networking']['ip']} ${value['networking']['ip6']}"
+            }
         }
         .flatten()
         .unique()
@@ -294,7 +360,7 @@ class role::prometheus {
         srange => "(${firewall_grafana})",
     }
 
-    motd::role { 'role::prometheus':
+    system::role { 'prometheus':
         description => 'central Prometheus server',
     }
 }

@@ -3,12 +3,14 @@ class mediawiki::php (
     Float $fpm_workers_multiplier        = lookup('mediawiki::php::fpm::fpm_workers_multiplier', {'default_value' => 1.5}),
     Integer $fpm_min_child               = lookup('mediawiki::php::fpm::fpm_min_child', {'default_value' => 4}),
     Integer $request_timeout             = lookup('mediawiki::php::request_timeout', {'default_value' => 60}),
-    VMlib::Php_version $php_version      = lookup('php::php_version', {'default_value' => '7.4'}),
+    String $apc_shm_size                 = lookup('mediawiki::php::apc_shm_size', {'default_value' => '3072M'}),
+    VMlib::Php_version $php_version      = lookup('php::php_version', {'default_value' => '8.2'}),
     Boolean $enable_fpm                  = lookup('mediawiki::php::enable_fpm', {'default_value' => true}),
     Boolean $enable_request_profiling    = lookup('mediawiki::php::enable_request_profiling', {'default_value' => false}),
     String $memory_limit                 = lookup('mediawiki::php::memory_limit', {'default_value' => '256M'}),
     Optional[Hash] $fpm_config           = lookup('mediawiki::php::fpm_config', {default_value => undef}),
     Integer $emergency_restart_threshold = lookup('mediawiki::php::emergency_restart_threshold', {default_value => $facts['processors']['count']}),
+    Boolean $increase_open_files         = lookup('mediawiki::php::increase_open_files', {'default_value' => false}),
 ) {
 
     $config_cli = {
@@ -23,26 +25,31 @@ class mediawiki::php (
         'default_socket_timeout' => 60,
     }
 
-    # Custom config for php-fpm
-    $base_config_fpm = {
+    $config_opcache = {
         'opcache.enable'                  => 1,
+        'opcache.enable_cli'              => 1,
         'opcache.interned_strings_buffer' => 96,
         'opcache.memory_consumption'      => 1024,
         'opcache.max_accelerated_files'   => 50000,
         'opcache.max_wasted_percentage'   => 10,
         'opcache.validate_timestamps'     => 1,
         'opcache.revalidate_freq'         => 10,
+        'opcache.jit_buffer_size'         => $apc_shm_size,
+    }
+
+    # Custom config for php-fpm
+    $base_config_fpm = {
         'display_errors'                  => 0,
         'session.upload_progress.enabled' => 0,
         'enable_dl'                       => 0,
-        'apc.shm_size'                    => '1536M',
         'rlimit_core'                     => 0,
+        'apc.shm_size'                    => $apc_shm_size,
     }
     if $enable_fpm {
         $_sapis = ['cli', 'fpm']
         $_config = {
-            'cli' => $config_cli,
-            'fpm' => $config_cli + $base_config_fpm + $fpm_config
+            'cli' => $config_cli + $config_opcache,
+            'fpm' => $config_cli + $config_opcache + $base_config_fpm + $fpm_config
         }
         # Add systemd override for php-fpm, that should prevent a reload
         # if the fpm config files are broken.
@@ -106,22 +113,12 @@ class mediawiki::php (
 
     stdlib::ensure_packages('liblua5.1-0')
 
-    if ($php_version == '8.2') {
-        file { '/usr/lib/php/20220829/luasandbox.so':
-            ensure  => present,
-            mode    => '0755',
-            source  => 'puppet:///modules/mediawiki/php/luasandbox.php82.so',
-            before  => Php::Extension['luasandbox'],
-            require => Package['liblua5.1-0'],
-        }
-    } else {
-        file { '/usr/lib/php/20190902/luasandbox.so':
-            ensure  => present,
-            mode    => '0755',
-            source  => 'puppet:///modules/mediawiki/php/luasandbox.php74.so',
-            before  => Php::Extension['luasandbox'],
-            require => Package['liblua5.1-0'],
-        }
+    file { '/usr/lib/php/20220829/luasandbox.so':
+        ensure  => present,
+        mode    => '0755',
+        source  => 'puppet:///modules/mediawiki/php/luasandbox.php82.so',
+        before  => Php::Extension['luasandbox'],
+        require => Package['liblua5.1-0'],
     }
 
     php::extension{ 'luasandbox':
@@ -204,7 +201,7 @@ class mediawiki::php (
             }
         }
 
-        # Send logs locally to /var/log/php7.x-fpm/error.log
+        # Send logs locally to /var/log/php8.x-fpm/error.log
         # Please note: this replaces the logrotate rule coming from the package,
         # because we use syslog-based logging. This will also prevent an fpm reload
         # for every logrotate run.
@@ -224,42 +221,23 @@ class mediawiki::php (
     }
 
     # Follow https://support.tideways.com/documentation/reference/tideways-xhprof/tideways-xhprof-extension.html
-    if ($php_version == '8.2') {
-        file { '/usr/lib/php/20220829/xhprof.so':
-            ensure => $profiling_ensure,
-            mode   => '0755',
-            source => 'puppet:///modules/mediawiki/php/xhprof.php82.so',
-            before => Php::Extension['xhprof'],
-        }
+    file { '/usr/lib/php/20220829/xhprof.so':
+        ensure => $profiling_ensure,
+        mode   => '0755',
+        source => 'puppet:///modules/mediawiki/php/xhprof.php82.so',
+        before => Php::Extension['xhprof'],
+    }
 
-        php::extension { 'xhprof':
-            ensure       => $profiling_ensure,
-            package_name => '',
-            priority     => 30,
-            config       => {
-                'extension' => 'xhprof.so',
-            }
-        }
-    } else {
-        file { '/usr/lib/php/20190902/tideways_xhprof.so':
-            ensure => $profiling_ensure,
-            mode   => '0755',
-            source => 'puppet:///modules/mediawiki/php/tideways_xhprof.php74.so',
-            before => Php::Extension['tideways-xhprof'],
-        }
-
-        php::extension { 'tideways-xhprof':
-            ensure       => $profiling_ensure,
-            package_name => '',
-            priority     => 30,
-            config       => {
-                'extension'                       => 'tideways_xhprof.so',
-                'tideways_xhprof.clock_use_rdtsc' => '0',
-            }
+    php::extension { 'xhprof':
+        ensure       => $profiling_ensure,
+        package_name => '',
+        priority     => 30,
+        config       => {
+            'extension' => 'xhprof.so',
         }
     }
 
-    # Set the default interpreter to php7
+    # Set the default interpreter to php8
     $cli_path = "/usr/bin/php${php_version}"
     $pkg = "php${php_version}-cli"
     alternatives::select { 'php':

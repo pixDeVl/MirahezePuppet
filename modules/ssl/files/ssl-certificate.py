@@ -10,6 +10,7 @@ import os
 import string
 import subprocess
 import sys
+import yaml
 
 # Suppress ssl warnings (no checking ssl here since it won't be valid when generating the cert)
 os.environ['PYTHONWARNINGS'] = 'ignore:Unverified HTTPS request'
@@ -138,16 +139,24 @@ class SslCertificate:
             if not self.quiet:
                 print('Pushing LetsEncrypt SSL certificate to GitHub')
 
-            os.system('git config --global core.sshCommand "ssh -i /var/lib/nagios/id_ed25519 -F /dev/null -o ProxyCommand=\'nc -6 -X connect -x bast.miraheze.org:8080 %h %p\'"')
-            os.system('git -C /srv/ssl/ssl/ config user.name "MirahezeSSLBot"')
-            os.system('git -C /srv/ssl/ssl/ config user.email "noreply@miraheze.org"')
+            os.system('git config --global core.sshCommand "ssh -i /var/lib/nagios/id_ed25519 -F /dev/null -o ProxyCommand=\'nc -6 -X connect -x bastion.wikitide.net:8080 %h %p\'"')
+            os.system('git -C /srv/ssl/ssl/ config user.name "WikiTideSSLBot"')
+            os.system('git -C /srv/ssl/ssl/ config user.email "noreply@wikitide.org"')
             os.system('git -C /srv/ssl/ssl/ reset --hard origin/master')
             os.system('git -C /srv/ssl/ssl/ pull')
             os.system(f'cp /etc/letsencrypt/live/{self.domain}/fullchain.pem /srv/ssl/ssl/certificates/{self.domain}.crt')
             os.system(f'git -C /srv/ssl/ssl/ add /srv/ssl/ssl/certificates/{self.domain}.crt')
 
-            with open('/srv/ssl/ssl/certs.yaml', 'a') as certs:
-                certs.write(self.domain.translate(str.maketrans('', '', string.punctuation)) + ':\n')
+        file_path = '/srv/ssl/ssl/certs.yaml'
+
+        with open(file_path, 'r') as certs_file:
+            certs_data = yaml.safe_load(certs_file) or {}
+
+        domain_key = self.domain.translate(str.maketrans('', '', string.punctuation))
+
+        if domain_key not in certs_data:
+            with open(file_path, 'a') as certs:
+                certs.write(domain_key + ':\n')
                 certs.write(f"  url: '{self.domain}'\n")
                 certs.write("  ca: 'LetsEncrypt'\n")
                 certs.write('  disable_event: false\n')
@@ -209,9 +218,9 @@ class SslCertificate:
         if not self.quiet:
             print('Pushing LetsEncrypt SSL certificate to GitHub')
 
-        os.system('git config --global core.sshCommand "ssh -i /var/lib/nagios/id_ed25519 -F /dev/null -o ProxyCommand=\'nc -6 -X connect -x bast.miraheze.org:8080 %h %p\'"')
-        os.system('git -C /srv/ssl/ssl/ config user.name "MirahezeSSLBot"')
-        os.system('git -C /srv/ssl/ssl/ config user.email "noreply@miraheze.org"')
+        os.system('git config --global core.sshCommand "ssh -i /var/lib/nagios/id_ed25519 -F /dev/null -o ProxyCommand=\'nc -6 -X connect -x bastion.wikitide.net:8080 %h %p\'"')
+        os.system('git -C /srv/ssl/ssl/ config user.name "WikiTideSSLBot"')
+        os.system('git -C /srv/ssl/ssl/ config user.email "noreply@wikitide.org"')
         os.system('git -C /srv/ssl/ssl/ reset --hard origin/master')
         os.system('git -C /srv/ssl/ssl/ pull')
         os.system(f'cp /etc/letsencrypt/live/{self.domain}/fullchain.pem /srv/ssl/ssl/certificates/{self.domain}.crt')

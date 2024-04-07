@@ -11,7 +11,6 @@ Unattended-Upgrade::Package-Blacklist {
 	"libc6-i686";
 	"mariadb-";
 	"php-";
-	"php7.4-";
 	"php8.2-";
 	"puppetdb";
 	"puppet-";
@@ -19,7 +18,7 @@ Unattended-Upgrade::Package-Blacklist {
 	"varnish";
 };
 
-Unattended-Upgrade::Mail "sre-infrastructure@miraheze.org";
+Unattended-Upgrade::Mail "sre-infrastructure@wikitide.org";
 Unattended-Upgrade::MailReport "only-on-error";
 
 Unattended-Upgrade::Remove-Unused-Dependencies "true";

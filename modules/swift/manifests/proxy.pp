@@ -4,6 +4,7 @@ class swift::proxy (
     Integer              $num_workers   = lookup('swift::proxy::num_workers', {'default_value' => $facts['processors']['count']}),
     Hash                 $accounts      = lookup('swift::accounts'),
     Hash                 $accounts_keys = lookup('swift::accounts_keys'),
+    String               $swift_main_memcached = lookup('swift::proxy::swift_main_memcached', {'default_value' => '[2602:294:0:b23::109]'}),
 ) {
 
     stdlib::ensure_packages(['swift-proxy'])
@@ -24,12 +25,15 @@ class swift::proxy (
         show_diff => false,
     }
 
-    # Supports bullseye
-    file { '/usr/local/lib/python3.9/dist-packages/miraheze/':
+    $python_version = $facts['os']['distro']['codename'] ? {
+        'bookworm' => 'python3.11',
+    }
+
+    file { "/usr/local/lib/${python_version}/dist-packages/wikitide/":
         owner   => 'root',
         group   => 'root',
         mode    => '0444',
-        source  => 'puppet:///modules/swift/SwiftMedia/miraheze/',
+        source  => 'puppet:///modules/swift/SwiftMedia/wikitide/',
         recurse => 'remote',
         notify  => Service['swift-proxy'],
     }
@@ -54,10 +58,18 @@ class swift::proxy (
         monitor => false,
     }
 
+    if ( $facts['networking']['interfaces']['ens19'] and $facts['networking']['interfaces']['ens18'] ) {
+        $address = $facts['networking']['interfaces']['ens19']['ip']
+    } elsif ( $facts['networking']['interfaces']['ens18'] ) {
+        $address = $facts['networking']['interfaces']['ens18']['ip6']
+    } else {
+        $address = $facts['networking']['ip6']
+    }
+
     monitoring::services { 'HTTP':
         check_command => 'check_http',
         vars          => {
-            address6         => $facts['networking']['ip6'],
+            address6         => $address,
             http_vhost       => 'swift-lb.miraheze.org',
             http_ignore_body => true,
             # We redirect / in varnish so the 404 is expected in the backend.
@@ -69,7 +81,7 @@ class swift::proxy (
     monitoring::services { 'HTTPS':
         check_command => 'check_http',
         vars          => {
-            address6         => $facts['networking']['ip6'],
+            address6         => $address,
             http_vhost       => 'swift-lb.miraheze.org',
             http_ssl         => true,
             http_ignore_body => true,
@@ -82,7 +94,7 @@ class swift::proxy (
     monitoring::services { 'Swift Proxy':
         check_command => 'tcp',
         vars          => {
-            tcp_address => $facts['networking']['ip6'],
+            tcp_address => $address,
             tcp_port    => '80',
         },
     }

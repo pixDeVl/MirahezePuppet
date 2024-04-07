@@ -13,6 +13,7 @@ define git::clone(
     String  $directory,
     String  $origin = '',
     String  $branch = '',
+    String  $revision = '',
     String  $ssh = '',
     String  $ensure = 'present',
     String  $owner = 'root',
@@ -100,13 +101,21 @@ define git::clone(
             }
 
             if !empty($branch) {
+                $checkout_command = $revision ? {
+                    ''      => "${git} checkout ${branch}",
+                    default => "${git} checkout ${revision}",
+                }
+                $is_current_revision = $revision ? {
+                    ''      => "${git} rev-parse --abbrev-ref HEAD | grep ${branch}",
+                    default => "${git} rev-parse HEAD | grep ${revision}",
+                }
                 if $ensure == 'latest' {
                     exec { "git_checkout_${title}":
                         cwd         => $directory,
-                        command     => "${git} checkout ${branch}",
+                        command     => $checkout_command,
                         provider    => shell,
                         environment => $env,
-                        unless      => "${git} rev-parse --abbrev-ref HEAD | grep ${branch}",
+                        unless      => $is_current_revision,
                         user        => $owner,
                         group       => $group,
                         umask       => $umask,
@@ -118,10 +127,10 @@ define git::clone(
                 else {
                     exec { "git_checkout_${title}":
                         cwd         => $directory,
-                        command     => "${git} checkout ${branch}",
+                        command     => $checkout_command,
                         provider    => shell,
                         environment => $env,
-                        unless      => "${git} rev-parse --abbrev-ref HEAD | grep ${branch}",
+                        unless      => $is_current_revision,
                         user        => $owner,
                         group       => $group,
                         umask       => $umask,

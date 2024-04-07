@@ -63,6 +63,13 @@ sub vcl_init {
 	mediawiki.add_backend(<%= name %>, 100);
 <%- end -%>
 <%- end -%>
+
+	new swift = directors.random();
+<%- @backends.each_pair do | name, property | -%>
+<%- if property['swiftpool'] -%>
+	swift.add_backend(<%= name %>, 100);
+<%- end -%>
+<%- end -%>
 }
 
 # Purge ACL
@@ -71,18 +78,18 @@ acl purge {
 	"127.0.0.1";
 
 	# IPv6
-	"2a10:6740::/64";
-
-	# IPv4
-	"31.24.105.128/28";
+	"2602:294:0:c8::/64";
+	"2602:294:0:b13::/64";
+	"2602:294:0:b23::/64";
+	"2602:294:0:b12::/64";
 }
 
 acl miraheze_nets {
 	# IPv6
-	"2a10:6740::/64";
-
-	# IPv4
-	"31.24.105.128/28";
+	"2602:294:0:c8::/64";
+	"2602:294:0:b13::/64";
+	"2602:294:0:b23::/64";
+	"2602:294:0:b12::/64";
 }
 
 # Cookie handling logic
@@ -183,9 +190,9 @@ sub vcl_synth {
 			set resp.http.Connection = "keep-alive";
 			set resp.http.Content-Length = "0";
 
-			// allow Range requests, and avoid other CORS errors when debugging with X-Miraheze-Debug
+			// allow Range requests, and avoid other CORS errors when debugging with X-WikiTide-Debug
 			set resp.http.Access-Control-Allow-Origin = "*";
-			set resp.http.Access-Control-Allow-Headers = "Range,X-Miraheze-Debug";
+			set resp.http.Access-Control-Allow-Headers = "Range,X-WikiTide-Debug";
 			set resp.http.Access-Control-Allow-Methods = "GET, HEAD, OPTIONS";
 			set resp.http.Access-Control-Max-Age = "86400";
 		} else {
@@ -220,17 +227,21 @@ sub mw_request {
 	call normalize_request_nonmisc;
 
 	# Assigning a backend
-	if (req.http.X-Miraheze-Debug-Access-Key == "<%= @debug_access_key %>" || std.ip(req.http.X-Real-IP, "0.0.0.0") ~ miraheze_nets) {
+	if (req.http.X-WikiTide-Debug-Access-Key == "<%= @debug_access_key %>" || std.ip(req.http.X-Real-IP, "0.0.0.0") ~ miraheze_nets) {
 <%- @backends.each_pair do | name, property | -%>
 <%- if property['xdebug'] -%>
-		if (req.http.X-Miraheze-Debug == "<%= name %>.miraheze.org") {
-			set req.backend_hint = <%= name %>_test;
+		if (req.http.X-WikiTide-Debug == "<%= name %>.wikitide.net") {
+			if (req.http.Host == "static.miraheze.org") {
+				set req.backend_hint = swift.backend();
+			} else {
+				set req.backend_hint = <%= name %>_test;
+			}
 			return (pass);
 		}
 <%- end -%>
 <%- end -%>
 	} else {
-		unset req.http.X-Miraheze-Debug;
+		unset req.http.X-WikiTide-Debug;
 	}
 
 	set req.backend_hint = mediawiki.backend();
@@ -242,6 +253,8 @@ sub mw_request {
 
 	# Numerous static.miraheze.org specific code
 	if (req.http.Host == "static.miraheze.org") {
+		set req.backend_hint = swift.backend();
+
 		unset req.http.X-Range;
 
 		if (req.http.Range) {
@@ -361,7 +374,7 @@ sub vcl_recv {
 		return (synth(200));
 	}
 
-	if (req.http.host == "meta.miraheze.org" && req.url == "/wiki/Miraheze" && req.http.User-Agent ~ "(G|g)ooglebot") {
+	if (req.http.host == "meta.miraheze.org" && req.url == "/wiki/Miraheze_Meta" && req.http.User-Agent ~ "(G|g)ooglebot") {
 		return (synth(301, "Main Page Redirect"));
 	}
 
@@ -371,24 +384,24 @@ sub vcl_recv {
 
 	if (
 		req.url ~ "^/\.well-known" ||
-		req.http.Host == "ssl.miraheze.org" ||
-		req.http.Host == "acme.miraheze.org"
+		req.http.Host == "ssl.wikitide.net" ||
+		req.http.Host == "acme.wikitide.net"
 	) {
-		set req.backend_hint = puppet141;
+		set req.backend_hint = puppet181;
 		return (pass);
 	}
 
 	if (req.http.Host ~ "^(.*\.)?mirabeta\.org") {
-		set req.backend_hint = test131;
+		set req.backend_hint = test151;
 		return (pass);
 	}
 
 	# Only cache js files from Matomo
-	if (req.http.Host == "matomo.miraheze.org") {
-		set req.backend_hint = matomo121;
+	if (req.http.Host == "analytics.wikitide.net") {
+		set req.backend_hint = matomo151;
 
 		# Yes, we only care about this file
-		if (req.url ~ "^/piwik.js" || req.url ~ "^/matomo.js") {
+		if (req.url ~ "^/matomo.js") {
 			return (hash);
 		} else {
 			return (pass);
@@ -396,8 +409,8 @@ sub vcl_recv {
 	}
 
 	# Do not cache requests from this domain
-	if (req.http.Host == "icinga.miraheze.org" || req.http.Host == "grafana.miraheze.org") {
-		set req.backend_hint = mon141;
+	if (req.http.Host == "monitoring.wikitide.net" || req.http.Host == "grafana.wikitide.net") {
+		set req.backend_hint = mon181;
 
 		if (req.http.upgrade ~ "(?i)websocket") {
 			return (pipe);
@@ -407,21 +420,15 @@ sub vcl_recv {
 	}
 
 	# Do not cache requests from this domain
-	if (req.http.Host == "phabricator.miraheze.org" || req.http.Host == "phab.miraheze.wiki" ||
+	if (req.http.Host == "issue-tracker.miraheze.org" || req.http.Host == "phorge-static.wikitide.net" ||
 		req.http.Host == "blog.miraheze.org") {
-		set req.backend_hint = phab121;
-		return (pass);
-	}
-
-	# Do not cache requests from this domain
-	if (req.http.Host == "webmail.miraheze.org") {
-		set req.backend_hint = mail121;
+		set req.backend_hint = phorge171;
 		return (pass);
 	}
 
 	# Do not cache requests from this domain
 	if (req.http.Host == "reports.miraheze.org") {
-		set req.backend_hint = reports121;
+		set req.backend_hint = reports171;
 		return (pass);
 	}
 

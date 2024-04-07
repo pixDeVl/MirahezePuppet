@@ -10,10 +10,6 @@ class mediawiki::jobqueue::runner (
         $runner = ''
     }
 
-    class { 'mediawiki::jobqueue::shared':
-        version => $version,
-    }
-
     $wiki = lookup('mediawiki::jobqueue::wiki')
     $beta = lookup('mediawiki::jobqueue::runner::beta')
     $database = $beta ? {
@@ -21,14 +17,37 @@ class mediawiki::jobqueue::runner (
         default => 'databases',
     }
 
-
     stdlib::ensure_packages('python3-xmltodict')
 
-    systemd::service { 'jobrunner':
-        ensure    => present,
-        content   => systemd_template('jobrunner'),
-        subscribe => File['/srv/jobrunner/jobrunner.json'],
-        restart   => true,
+    if lookup('mediawiki::use_cpjobqueue', {'default_value' => false}) {
+        include mediawiki::jobrunner
+        if !defined(Class['mediawiki::jobqueue::shared']) {
+            class { 'mediawiki::jobqueue::shared':
+                ensure  => absent,
+                version => $version,
+            }
+        }
+        systemd::service { 'jobrunner':
+            ensure  => absent,
+            content => systemd_template('jobrunner'),
+        }
+    } else {
+        if !defined(Class['mediawiki::jobqueue::shared']) {
+            class { 'mediawiki::jobqueue::shared':
+                version => $version,
+            }
+        }
+        systemd::service { 'jobrunner':
+            ensure    => present,
+            content   => systemd_template('jobrunner'),
+            subscribe => File['/srv/jobrunner/jobrunner.json'],
+            restart   => true,
+        }
+
+        monitoring::nrpe { 'JobRunner Service':
+            command => '/usr/lib/nagios/plugins/check_procs -a redisJobRunnerService -c 1:1',
+            docs    => 'https://meta.miraheze.org/wiki/Tech:Icinga/MediaWiki_Monitoring#JobRunner_Service'
+        }
     }
 
     if lookup('mediawiki::jobqueue::runner::cron', {'default_value' => false}) {
@@ -120,7 +139,7 @@ class mediawiki::jobqueue::runner (
 
             cron { 'backups-mediawiki-xml':
                 ensure   => absent,
-                command  => '/usr/local/bin/miraheze-backup backup mediawiki-xml > /var/log/mediawiki-xml-backup.log 2>&1',
+                command  => '/usr/local/bin/wikitide-backup backup mediawiki-xml > /var/log/mediawiki-xml-backup.log 2>&1',
                 user     => 'root',
                 minute   => '0',
                 hour     => '1',
@@ -171,10 +190,5 @@ class mediawiki::jobqueue::runner (
             hour     => '5',
             monthday => [ '6', '21' ],
         }
-    }
-
-    monitoring::nrpe { 'JobRunner Service':
-        command => '/usr/lib/nagios/plugins/check_procs -a redisJobRunnerService -c 1:1',
-        docs    => 'https://meta.miraheze.org/wiki/Tech:Icinga/MediaWiki_Monitoring#JobRunner_Service'
     }
 }

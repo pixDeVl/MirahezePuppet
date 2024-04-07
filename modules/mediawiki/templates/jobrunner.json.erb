@@ -4,7 +4,7 @@
     "groups": {
         "basic": {
             // Number of runner processes in this group
-            "runners": 1,
+            "runners": 5,
             // Job types to include ("*" means "all")
             "include": [
                 "*"
@@ -13,6 +13,8 @@
             "exclude": [
                 "AssembleUploadChunks",
                 "DataDumpGenerateJob",
+                "ImportDumpJob",
+                "ImportDumpNotifyJob",
                 "PublishStashedFile",
                 "refreshLinks",
                 "refreshLinksDynamic",
@@ -49,10 +51,12 @@
         },
         // runJobs.php memory limits
         "memory": {
-            "*": "300M",
+            "*": "500M",
             "parsoidCachePrewarm": "1400M"
         }
     },
+
+    "statsd": "10.0.15.145:8125",
 
     "redis": {
         // Ready queue trackers
